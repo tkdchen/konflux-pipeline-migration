@@ -10,10 +10,6 @@ from typing import Callable, Final
 from ruamel.yaml import YAML
 from fn import append, apply, delete_if, with_path, if_matches, nth
 
-
-PIPELINE_DEF: Final = "docker-build-af3a7d036a4406f6cb74296090f9f8e2015fada5.yaml"
-SCRIPT_DIR = os.path.dirname(__file__)
-
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(name)s:%(asctime)s:%(message)s")
 logger = logging.getLogger("migration")
 
