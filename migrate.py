@@ -93,7 +93,7 @@ def generate_yq_commands(differences: dict[str, dict[str, str]]) -> list[str]:
     :param differences: a mapping from path to the detail.
     :type differences: dict[str, dict[str, str]]
     """
-    exprs = []  # yq expressions
+    exprs: list[str] = []  # yq expressions
 
     path_pattern = r"^spec\.tasks\.(?P<task_name>[\w-]+)\.params$"
 
@@ -117,7 +117,7 @@ def generate_yq_commands(differences: dict[str, dict[str, str]]) -> list[str]:
                 for detail_item in load_list_details(detail):
                     op = m.group("operation")
                     if op == OP_ADDED:
-                        add_this = json.dumps(param, separators=(", ", ": "))
+                        add_this = json.dumps(detail_item, separators=(", ", ": "))
                         filters_pipe = " | ".join(filters)
                         exprs.append(f"({filters_pipe}) += {add_this}")
                     elif op == OP_REMOVED:
@@ -126,8 +126,7 @@ def generate_yq_commands(differences: dict[str, dict[str, str]]) -> list[str]:
                         name = detail_item["name"]
                         value = detail_item["value"]
                         filters.append(f'select(.name == "{name}" and .value == "{value}")')
-                        filters_pipe = " | ".join(filters)
-                        exprs.append(f"del({filters_pipe})")
+                        exprs.append("del(" + " | ".join(filters) + ")")
 
     return exprs
 
@@ -185,7 +184,7 @@ def generate_dsl(differences):
                     if op == OP_ADDED:
                         fns.append(append(detail_item))
                     elif op == OP_REMOVED:
-                        fns.append(delete_if(match_name_value(detail_item["name"], detail_item["value"])))
+                        fns.append(delete_if(match_name_value(**detail_item)))
                     else:
                         raise ValueError(f"Unknown operation in: {action}")
 
