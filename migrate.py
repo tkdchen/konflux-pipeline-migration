@@ -157,7 +157,6 @@ def generate_dsl(differences):
     """
     # Each callable object represents the DSL operations for a specific path.
     applies: list[Callable] = []
-    # action_re: Final = r". (?P<count>[a-z]+) (?P<type>list|map) (entry|entries) (?P<operation>added|removed):$"
 
     for path in differences:
         # NOTE: only handle this path temporarily
