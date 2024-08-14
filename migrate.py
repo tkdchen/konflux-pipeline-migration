@@ -169,7 +169,7 @@ def generate_dsl(differences):
         add_fn = fns.append
         parts = path.split(".")
         for i, part in enumerate(parts):
-            if i > 0 and parts[i-1] in ("tasks", "workspaces"):
+            if i > 0 and is_tk_list_fields(parts[i-1]):
                 fns.append(if_matches(match_task(part)))
                 fns.append(nth(0))
             else:
