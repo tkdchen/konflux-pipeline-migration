@@ -220,6 +220,10 @@ def migrate_with_dsl(migrations: list[Callable], pipeline_file: str) -> None:
 
 
 def migrate_with_yq(exprs: list[str], pipeline_file: str, dry_run: bool = False) -> None:
+    if dry_run:
+        exprs = "\n".join([f"yq e '{expr}' {pipeline_file}" for expr in exprs])
+        logger.info("dry run:\n%s", exprs)
+        return
     for expr in exprs:
         yq_cmd = f"yq e '{expr}' {pipeline_file}"
         if dry_run:
