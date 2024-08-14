@@ -101,32 +101,30 @@ def generate_yq_commands(differences: dict[str, dict[str, str]]) -> list[str]:
         if not re.match(path_pattern, path):
             continue
 
-        filters: list[str] = []
+        path_filters: list[str] = []
         parts = path.split(".")
 
         for i, part in enumerate(parts):
             if i > 0 and is_tk_list_fields(parts[i-1]):
-                filters[-1] += "[]"
-                filters.append(f'select(.name == "{part}")')
+                path_filters[-1] += "[]"
+                path_filters.append(f'select(.name == "{part}")')
             else:
-                filters.append("." + part)
+                path_filters.append("." + part)
 
         for action in differences[path]:
+            path_filters_pipe = " | ".join(path_filters)
             detail = differences[path][action]
             if (m := LIST_MAP_ACTIONS_RE.match(action)) is not None:
                 for detail_item in load_list_details(detail):
                     op = m.group("operation")
                     if op == OP_ADDED:
                         add_this = json.dumps(detail_item, separators=(", ", ": "))
-                        filters_pipe = " | ".join(filters)
-                        exprs.append(f"({filters_pipe}) += {add_this}")
+                        exprs.append(f"({path_filters_pipe}) += {add_this}")
                     elif op == OP_REMOVED:
-                        if is_tk_list_fields(filters[-1][1:]):
-                            filters[-1] += "[]"
                         name = detail_item["name"]
                         value = detail_item["value"]
-                        filters.append(f'select(.name == "{name}" and .value == "{value}")')
-                        exprs.append("del(" + " | ".join(filters) + ")")
+                        e = f'del({path_filters_pipe}[] | select(.name == "{name}" and .value == "{value}"))'
+                        exprs.append(e)
 
     return exprs
 
