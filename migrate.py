@@ -13,6 +13,9 @@ from fn import append, apply, delete_if, with_path, if_matches, nth
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(name)s:%(asctime)s:%(message)s")
 logger = logging.getLogger("migration")
 
+OP_ADDED: Final = "added"
+OP_REMOVED: Final = "removed"
+
 
 def count_leading_spaces(s: str) -> int:
     n = 0
@@ -113,11 +116,11 @@ def generate_yq_commands(differences: dict[str, dict[str, str]]) -> list[str]:
             if (m := LIST_MAP_ACTIONS_RE.match(action)) is not None:
                 for detail_item in load_list_details(detail):
                     op = m.group("operation")
-                    if op == "added":
+                    if op == OP_ADDED:
                         add_this = json.dumps(param, separators=(", ", ": "))
                         filters_pipe = " | ".join(filters)
                         exprs.append(f"({filters_pipe}) += {add_this}")
-                    elif op == "removed":
+                    elif op == OP_REMOVED:
                         if is_tk_list_fields(filters[-1][1:]):
                             filters[-1] += "[]"
                         name = detail_item["name"]
@@ -179,9 +182,9 @@ def generate_dsl(differences):
             if (m := LIST_MAP_ACTIONS_RE.match(action)) is not None:
                 for detail_item in load_list_details(detail):
                     op = m.group("operation")
-                    if op == "added":
+                    if op == OP_ADDED:
                         fns.append(append(detail_item))
-                    elif op == "removed":
+                    elif op == OP_REMOVED:
                         fns.append(delete_if(match_name_value(detail_item["name"], detail_item["value"])))
                     else:
                         raise ValueError(f"Unknown operation in: {action}")
