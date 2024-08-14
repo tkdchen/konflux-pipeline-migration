@@ -5,6 +5,16 @@ A POC of generating pipeline updates migrations.
 The migrations can be in a series of yq commands or in a programmatic way by
 applying sets of build-migrations DSL functions to the pipeline definitions.
 
+It works like the following pipes:
+
+```
+Generate differences | generate migrations | apply to pipeline definition
+                       |
+                       |-- yq commands
+                       |
+                       +-- DSL calls
+```
+
 yq commands generatation:
 
 ```bash
