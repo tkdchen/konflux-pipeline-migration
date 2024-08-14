@@ -1,14 +1,14 @@
 import argparse
 import io
 import json
+import logging
 import os
 import re
 import subprocess
-import logging
 
-from fn import append, apply, delete_if, with_path, if_matches, nth
-from ruamel.yaml import YAML
 from typing import Callable, Final
+from ruamel.yaml import YAML
+from fn import append, apply, delete_if, with_path, if_matches, nth
 
 
 PIPELINE_DEF: Final = "docker-build-af3a7d036a4406f6cb74296090f9f8e2015fada5.yaml"
@@ -16,22 +16,6 @@ SCRIPT_DIR = os.path.dirname(__file__)
 
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(name)s:%(asctime)s:%(message)s")
 logger = logging.getLogger("migration")
-
-
-def migrate() -> None:
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 8192
-
-    filename = os.path.join(SCRIPT_DIR, PIPELINE_DEF)
-    with open(filename, "r", encoding="utf-8") as f:
-        pipeline = yaml.load(f)
-
-    r = do_remove_list_entries(pipeline)
-
-    for task in r["spec"]["tasks"]:
-        print(task)
-        print()
 
 
 def count_leading_spaces(s: str) -> int:
