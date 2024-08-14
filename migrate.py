@@ -10,7 +10,9 @@ from typing import Callable, Final
 from ruamel.yaml import YAML
 from fn import append, apply, delete_if, with_path, if_matches, nth
 
-logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(name)s:%(asctime)s:%(message)s")
+logging.basicConfig(
+    level=logging.DEBUG, format="%(levelname)s:%(name)s:%(asctime)s:%(message)s"
+)
 logger = logging.getLogger("migration")
 
 OP_ADDED: Final = "added"
@@ -53,9 +55,14 @@ def convert_difference(difference: str):
 
 def compare_pipeline_definitions(from_: str, to: str):
     compare_cmd = [
-        "dyff", "between", "--omit-header", "--no-table-style",
-        "--detect-kubernetes", "--set-exit-code",
-        from_, to
+        "dyff",
+        "between",
+        "--omit-header",
+        "--no-table-style",
+        "--detect-kubernetes",
+        "--set-exit-code",
+        from_,
+        to,
     ]
     proc = subprocess.run(compare_cmd, capture_output=True, text=True)
     if proc.returncode == 0:
@@ -105,7 +112,7 @@ def generate_yq_commands(differences: dict[str, dict[str, str]]) -> list[str]:
         parts = path.split(".")
 
         for i, part in enumerate(parts):
-            if i > 0 and is_tk_list_fields(parts[i-1]):
+            if i > 0 and is_tk_list_fields(parts[i - 1]):
                 path_filters[-1] += "[]"
                 path_filters.append(f'select(.name == "{part}")')
             else:
@@ -132,12 +139,14 @@ def generate_yq_commands(differences: dict[str, dict[str, str]]) -> list[str]:
 def match_task(name: str) -> Callable:
     def _match(task) -> bool:
         return task["name"] == name
+
     return _match
 
 
 def match_name_value(name: str, value: str) -> Callable:
     def _match(obj) -> bool:
         return obj["name"] == name and obj["value"] == value
+
     return _match
 
 
@@ -168,7 +177,7 @@ def generate_dsl(differences):
         add_fn = fns.append
         parts = path.split(".")
         for i, part in enumerate(parts):
-            if i > 0 and is_tk_list_fields(parts[i-1]):
+            if i > 0 and is_tk_list_fields(parts[i - 1]):
                 fns.append(if_matches(match_task(part)))
                 fns.append(nth(0))
             else:
@@ -206,7 +215,7 @@ def migrate_with_dsl(migrations: list[Callable], pipeline_file: str) -> None:
     yaml.preserve_quotes = True
     yaml.width = 8192
 
-    with open(pipeline_file, 'r', encoding='utf-8') as f:
+    with open(pipeline_file, "r", encoding="utf-8") as f:
         origin_pipeline = yaml.load(f)
 
     pipeline = {"spec": origin_pipeline["spec"]["pipelineSpec"]}
@@ -215,11 +224,13 @@ def migrate_with_dsl(migrations: list[Callable], pipeline_file: str) -> None:
         logger.debug("applying migration: %r", migration)
         migration(pipeline)
 
-    with open(pipeline_file + ".modified", 'w', encoding='utf-8') as f:
+    with open(pipeline_file + ".modified", "w", encoding="utf-8") as f:
         yaml.dump(origin_pipeline, f)
 
 
-def migrate_with_yq(exprs: list[str], pipeline_file: str, dry_run: bool = False) -> None:
+def migrate_with_yq(
+    exprs: list[str], pipeline_file: str, dry_run: bool = False
+) -> None:
     if dry_run:
         exprs = "\n".join([f"yq e '{expr}' {pipeline_file}" for expr in exprs])
         logger.info("dry run:\n%s", exprs)
@@ -236,7 +247,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--from", metavar="PATH", dest="from_pipeline", required=True)
     parser.add_argument("--to", metavar="PATH", dest="to_pipeline", required=True)
-    parser.add_argument("--generate", choices=("dsl", "yq"), metavar="TYPE", dest="generate_target", required=True)
+    parser.add_argument(
+        "--generate",
+        choices=("dsl", "yq"),
+        metavar="TYPE",
+        dest="generate_target",
+        required=True,
+    )
     parser.add_argument("--modify-pipeline", metavar="PATH")
     parser.add_argument("--show-diff", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
