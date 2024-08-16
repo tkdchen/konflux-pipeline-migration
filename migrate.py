@@ -8,7 +8,7 @@ import subprocess
 
 from typing import Callable, Final
 from ruamel.yaml import YAML
-from fn import append, apply, delete_if, with_path, if_matches, nth
+from fn import append, apply, delete_if, delete_key, with_path, if_matches, nth
 
 logging.basicConfig(
     level=logging.DEBUG, format="%(levelname)s:%(name)s:%(asctime)s:%(message)s"
@@ -17,6 +17,8 @@ logger = logging.getLogger("migration")
 
 OP_ADDED: Final = "added"
 OP_REMOVED: Final = "removed"
+FIELD_TYPE_LIST: Final = "list"
+FIELD_TYPE_MAP: Final = "map"
 
 
 def count_leading_spaces(s: str) -> int:
@@ -78,6 +80,14 @@ def load_list_details(s: str):
     return piece["list"]
 
 
+def load_map_details(s: str):
+    return YAML(typ="safe").load(s)
+
+
+def json_compact_dumps(o) -> str:
+    return json.dumps(o, separators=(", ", ": "))
+
+
 LIST_MAP_ACTIONS_RE: Final = re.compile(
     r"^. (?P<count>[a-z]+) (?P<type>list|map) (entry|entries) (?P<operation>added|removed):$"
 )
@@ -102,7 +112,7 @@ def generate_yq_commands(differences: dict[str, dict[str, str]]) -> list[str]:
     """
     exprs: list[str] = []  # yq expressions
 
-    path_pattern = r"^spec\.tasks\.(?P<task_name>[\w-]+)\.params$"
+    path_pattern = r"^spec\.tasks\.(?P<task_name>[\w-]+)(\.params)?$"
 
     for path in differences:
         if not re.match(path_pattern, path):
@@ -122,16 +132,23 @@ def generate_yq_commands(differences: dict[str, dict[str, str]]) -> list[str]:
             path_filters_pipe = " | ".join(path_filters)
             detail = differences[path][action]
             if (m := LIST_MAP_ACTIONS_RE.match(action)) is not None:
-                for detail_item in load_list_details(detail):
-                    op = m.group("operation")
+                op = m.group("operation")
+                type_ = m.group("type")
+                if type_ == "list":
+                    for detail_item in load_list_details(detail):
+                        if op == OP_ADDED:
+                            exprs.append(f"({path_filters_pipe}) += {json_compact_dumps(detail_item)}")
+                        elif op == OP_REMOVED:
+                            name = detail_item["name"]
+                            value = detail_item["value"]
+                            e = f'del({path_filters_pipe}[] | select(.name == "{name}" and .value == "{value}"))'
+                            exprs.append(e)
+                elif type_ == "map":
+                    maps = load_map_details(detail)
                     if op == OP_ADDED:
-                        add_this = json.dumps(detail_item, separators=(", ", ": "))
-                        exprs.append(f"({path_filters_pipe}) += {add_this}")
+                        exprs.append(f"({path_filters_pipe}) += {json_compact_dumps(maps)}")
                     elif op == OP_REMOVED:
-                        name = detail_item["name"]
-                        value = detail_item["value"]
-                        e = f'del({path_filters_pipe}[] | select(.name == "{name}" and .value == "{value}"))'
-                        exprs.append(e)
+                        exprs.extend(f"del({path_filters_pipe} | .{key})" for key in maps)
 
     return exprs
 
@@ -151,19 +168,7 @@ def match_name_value(name: str, value: str) -> Callable:
 
 
 def generate_dsl(differences):
-    """Generate DSL
-
-    spec.tasks.deprecated-base-image-check.params
-      - two list entries removed:
-        - name: BASE_IMAGES_DIGESTS
-          value: $(tasks.build-container.results.BASE_IMAGES_DIGESTS)
-        - name: IMAGE_URL
-          value: $(tasks.build-container.results.IMAGE_URL)
-
-      + one list entry added:
-        - name: IMAGE_NAME
-          value: $(tasks.build-container.results.IMAGE_URL)
-    """
+    """Generate DSL"""
     # Each callable object represents the DSL operations for a specific path.
     applies: list[Callable] = []
 
@@ -174,24 +179,34 @@ def generate_dsl(differences):
             continue
 
         fns = []
-        add_fn = fns.append
         parts = path.split(".")
+
         for i, part in enumerate(parts):
             if i > 0 and is_tk_list_fields(parts[i - 1]):
                 fns.append(if_matches(match_task(part)))
                 fns.append(nth(0))
             else:
                 fns.append(with_path(part))
+
         for action in differences[path]:
             detail = differences[path][action]
-            # map is not handled yet
             if (m := LIST_MAP_ACTIONS_RE.match(action)) is not None:
                 for detail_item in load_list_details(detail):
                     op = m.group("operation")
-                    if op == OP_ADDED:
-                        fns.append(append(detail_item))
-                    elif op == OP_REMOVED:
-                        fns.append(delete_if(match_name_value(**detail_item)))
+                    type_ = m.group("type")
+                    if type_ == FIELD_TYPE_LIST:
+                        for detail_item in load_list_details(detail):
+                            if op == OP_ADDED:
+                                fns.append(append(detail_item))
+                            elif op == OP_REMOVED:
+                                fns.append(delete_if(match_name_value(**detail_item)))
+                    elif type_ == FIELD_TYPE_MAP:
+                        maps = load_map_details(detail)
+                        if op == OP_ADDED:
+                            fns.append(append(maps))
+                        elif op == OP_REMOVED:
+                            for key in maps:
+                                fns.append(delete_key(key))
                     else:
                         raise ValueError(f"Unknown operation in: {action}")
 
