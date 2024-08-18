@@ -188,27 +188,26 @@ def generate_dsl(differences):
             else:
                 fns.append(with_path(part))
 
-        for action in differences[path]:
-            detail = differences[path][action]
-            if (m := LIST_MAP_ACTIONS_RE.match(action)) is not None:
-                for detail_item in load_list_details(detail):
-                    op = m.group("operation")
-                    type_ = m.group("type")
-                    if type_ == FIELD_TYPE_LIST:
-                        for detail_item in load_list_details(detail):
-                            if op == OP_ADDED:
-                                fns.append(append(detail_item))
-                            elif op == OP_REMOVED:
-                                fns.append(delete_if(match_name_value(**detail_item)))
-                    elif type_ == FIELD_TYPE_MAP:
-                        maps = load_map_details(detail)
+        for action, detail in differences[path].items():
+            m = LIST_MAP_ACTIONS_RE.match(action)
+            if m:
+                op = m.group("operation")
+                type_ = m.group("type")
+                if type_ == FIELD_TYPE_LIST:
+                    for detail_item in load_list_details(detail):
                         if op == OP_ADDED:
-                            fns.append(append(maps))
+                            fns.append(append(detail_item))
                         elif op == OP_REMOVED:
-                            for key in maps:
-                                fns.append(delete_key(key))
-                    else:
-                        raise ValueError(f"Unknown operation in: {action}")
+                            fns.append(delete_if(match_name_value(**detail_item)))
+                elif type_ == FIELD_TYPE_MAP:
+                    maps = load_map_details(detail)
+                    if op == OP_ADDED:
+                        fns.append(append(maps))
+                    elif op == OP_REMOVED:
+                        for key in maps:
+                            fns.append(delete_key(key))
+                else:
+                    raise ValueError(f"Unknown operation in: {action}")
 
         applies.append(apply(*fns))
 
