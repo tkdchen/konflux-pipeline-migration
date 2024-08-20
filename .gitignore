@@ -1,3 +1,5 @@
 .idea/
 __pycache__/
 *.swp
+*.egg-info/
+files/

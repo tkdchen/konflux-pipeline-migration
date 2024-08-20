@@ -6,6 +6,8 @@ import os
 import re
 import subprocess
 
+import fn
+
 from typing import Callable, Final
 from ruamel.yaml import YAML
 from fn import append, apply, delete_if, delete_key, with_path, if_matches, nth
@@ -51,8 +53,7 @@ def convert_difference(difference: str):
                 yaml_lines.append(" " * spaces_n + s[spaces_n:])
 
     yaml_content = "\n".join(yaml_lines)
-    yaml = YAML(typ="safe")
-    return yaml.load(yaml_content)
+    return create_yaml_obj().load(yaml_content)
 
 
 def compare_pipeline_definitions(from_: str, to: str):
@@ -75,13 +76,12 @@ def compare_pipeline_definitions(from_: str, to: str):
 
 
 def load_list_details(s: str):
-    yaml = YAML(typ="safe")
-    piece = yaml.load("list:\n" + s)
+    piece = create_yaml_obj().load("list:\n" + s)
     return piece["list"]
 
 
 def load_map_details(s: str):
-    return YAML(typ="safe").load(s)
+    return create_yaml_obj().load(s)
 
 
 def json_compact_dumps(o) -> str:
@@ -167,16 +167,22 @@ def match_name_value(name: str, value: str) -> Callable:
     return _match
 
 
-def generate_dsl(differences):
+# {yaml path => {action => details}}
+DifferencesT = dict[dict[str, str]]
+
+
+def generate_dsl(differences: DifferencesT):
     """Generate DSL"""
     # Each callable object represents the DSL operations for a specific path.
     applies: list[Callable] = []
 
     for path in differences:
         # NOTE: only handle this path temporarily
-        path_pattern = r"^spec\.tasks\.(?P<task_name>[\w-]+)\.params$"
-        if not re.match(path_pattern, path):
-            continue
+        # path_pattern = r"^spec\.tasks\.(?P<task_name>[\w-]+)\.params$"
+        # if not re.match(path_pattern, path):
+        #     continue
+
+        logger.debug("path: %s", path)
 
         fns = []
         parts = path.split(".")
@@ -202,7 +208,7 @@ def generate_dsl(differences):
                 elif type_ == FIELD_TYPE_MAP:
                     maps = load_map_details(detail)
                     if op == OP_ADDED:
-                        fns.append(append(maps))
+                        fns.append(fn.update(maps))
                     elif op == OP_REMOVED:
                         for key in maps:
                             fns.append(delete_key(key))
@@ -212,6 +218,13 @@ def generate_dsl(differences):
         applies.append(apply(*fns))
 
     return applies
+
+
+def create_yaml_obj():
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.width = 8192
+    return yaml
 
 
 def migrate_with_dsl(migrations: list[Callable], pipeline_file: str) -> None:
@@ -225,14 +238,33 @@ def migrate_with_dsl(migrations: list[Callable], pipeline_file: str) -> None:
     :type pipeline_file: str
     """
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 8192
+    yaml = create_yaml_obj()
 
     with open(pipeline_file, "r", encoding="utf-8") as f:
         origin_pipeline = yaml.load(f)
 
-    pipeline = {"spec": origin_pipeline["spec"]["pipelineSpec"]}
+    # TODO: extract this pipeline resolution
+    match origin_pipeline["kind"]:
+        case "Pipeline":
+            pipeline = origin_pipeline
+        case "PipelineRun":
+            if "pipelineSpec" in origin_pipeline["spec"]:
+                # pipeline definition is inline the PipelineRun
+                pipeline = {"spec": origin_pipeline["spec"]["pipelineSpec"]}
+            elif "pipelineRef" in origin_pipeline["spec"]:
+                # pipeline definition is referenced by name or git-resolver
+                pipeline_ref = origin_pipeline["spec"]["pipelineRef"]
+                if "name" in pipeline_ref:
+                    ref_pipeline = os.path.join(os.path.dirname(pipeline_file), pipeline_ref["name"])
+                    with open(ref_pipeline, "r", encoding="utf-8") as f:
+                        pipeline = create_yaml_obj().load(f)
+                elif "bundle" in pipeline_ref:
+                    # TODO: resolve and read pipeline
+                    raise NotImplemented("read pipeline referenced by git-resolver")
+                else:
+                    raise ValueError("Unknown pipelineRef section")
+            else:
+                raise ValueError("PipelineRun .spec field includes neither .pipelineSpec nor .pipelineRef field.")
 
     for migration in migrations:
         logger.debug("applying migration: %r", migration)
@@ -255,6 +287,10 @@ def migrate_with_yq(
             logger.info("dry run: %s", yq_cmd)
         else:
             subprocess.run(yq_cmd, shell=True, check=True)
+
+
+def analyze_pipeline_run(filename: str):
+    pass
 
 
 def main() -> None:
@@ -280,17 +316,20 @@ def main() -> None:
 
     if args.show_diff:
         j = json.dumps(dict(diff), indent=2)
+        print(j)
         logger.debug("pipeline differences:\n%s\n", j)
+
+    target_pipeline = args.modify_pipeline
 
     match args.generate_target:
         case "yq":
             r = generate_yq_commands(diff)
-            if args.modify_pipeline:
-                migrate_with_yq(r, args.modify_pipeline, dry_run=args.dry_run)
+            if target_pipeline:
+                migrate_with_yq(r, target_pipeline, dry_run=args.dry_run)
         case "dsl":
             r = generate_dsl(diff)
-            if args.modify_pipeline:
-                migrate_with_dsl(r, args.modify_pipeline)
+            if target_pipeline:
+                migrate_with_dsl(r, target_pipeline)
         case _:
             print("Unknown generate target:", args.generate_target)
             return
